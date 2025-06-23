@@ -37,3 +37,27 @@ variable "bucket_notification" {
     lambda_function = []
   }
 }
+variable "lifecycle_policies" {
+  type = list(object({
+    id     = string
+    status = string
+    filters = list(object({
+      prefix = string
+    }))
+    transitions = list(object({
+      days          = number
+      storage_class = string
+    }))
+    noncurrent_version_transitions = list(object({
+      days          = number
+      storage_class = string
+    }))
+    expirations = list(object({
+      days = number
+    }))
+    abort_incomplete_multipart_uploads = list(object({
+      days_after_initiation = number
+    }))
+  }))
+  default = []
+}
