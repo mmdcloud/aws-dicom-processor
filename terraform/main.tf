@@ -1,3 +1,129 @@
+# SNS Configuration
+module "dicom_processing_sns" {
+  source     = "./modules/sns"
+  topic_name = "dicom-health-imaging-status-change-topic"
+  subscriptions = [
+    {
+      protocol = "email"
+      endpoint = "madmaxcloudonline@gmail.com"
+    }
+  ]
+}
+
+# EventBridge Rule
+module "dicom_processing_eventbridge_rule" {
+  source           = "./modules/eventbridge"
+  rule_name        = "dicom-health-imaging-state-change-rule"
+  rule_description = "It captures HealthImaging job state changes for DICOM processing"
+  event_pattern = jsonencode({
+    source = [
+      "aws.medical-imaging"
+    ]
+    detail-type = [
+      "Image Set Created"
+    ]
+  })
+  target_id  = "Image Set Created"
+  target_arn = module.dicom_processing_sns.topic_arn
+}
+
+# DynamoDB Table
+module "dicom_processing_dynamodb" {
+  source = "./modules/dynamodb"
+  name   = "dicom-records"
+  attributes = [
+    {
+      name = "RecordId"
+      type = "S"
+    },
+    {
+      name = "filename"
+      type = "S"
+    }
+  ]
+  billing_mode          = "PROVISIONED"
+  hash_key              = "RecordId"
+  range_key             = "filename"
+  read_capacity         = 20
+  write_capacity        = 20
+  ttl_attribute_name    = "TimeToExist"
+  ttl_attribute_enabled = true
+}
+
+# SQS
+module "dicom_processing_sqs" {
+  source                        = "./modules/sqs"
+  queue_name                    = "dicom-processing-queue"
+  delay_seconds                 = 0
+  maxReceiveCount               = 3
+  dlq_message_retention_seconds = 86400
+  dlq_name                      = "dicom-processing-dlq"
+  max_message_size              = 262144
+  message_retention_seconds     = 345600
+  visibility_timeout_seconds    = 180
+  receive_wait_time_seconds     = 20
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect    = "Allow"
+        Principal = { Service = "s3.amazonaws.com" }
+        Action    = "sqs:SendMessage"
+        Resource  = "arn:aws:sqs:${var.region}:*:dicom-processing-queue"
+        Condition = {
+          ArnEquals = {
+            "aws:SourceArn" = module.source_bucket.arn
+          }
+        }
+      }
+    ]
+  })
+}
+
+module "cognito" {
+  source                     = "./modules/cognito"
+  name                       = "dicom_processing_users"
+  username_attributes        = ["email"]
+  auto_verified_attributes   = ["email"]
+  password_minimum_length    = 8
+  password_require_lowercase = true
+  password_require_numbers   = true
+  password_require_symbols   = true
+  password_require_uppercase = true
+  schema = [
+    {
+      attribute_data_type = "String"
+      name                = "email"
+      required            = true
+    }
+  ]
+  verification_message_template_default_email_option = "CONFIRM_WITH_CODE"
+  verification_email_subject                         = "Verify your email for Dicom Processing"
+  verification_email_message                         = "Your verification code is {####}"
+  user_pool_clients = [
+    {
+      name                                 = "dicom_processing_client"
+      generate_secret                      = false
+      explicit_auth_flows                  = ["ALLOW_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
+      allowed_oauth_flows_user_pool_client = true
+      allowed_oauth_flows                  = ["code", "implicit"]
+      allowed_oauth_scopes                 = ["email", "openid"]
+      callback_urls                        = ["https://example.com/callback"]
+      logout_urls                          = ["https://example.com/logout"]
+      supported_identity_providers         = ["COGNITO"]
+    }
+  ]
+}
+
+#  Lambda SQS event source mapping
+resource "aws_lambda_event_source_mapping" "sqs_event_trigger" {
+  event_source_arn                   = module.dicom_processing_sqs.arn
+  function_name                      = module.dicom_processing_function.arn
+  enabled                            = true
+  batch_size                         = 10
+  maximum_batching_window_in_seconds = 60
+}
+
 # -----------------------------------------------------------------------------------------
 # S3 Configuration
 # -----------------------------------------------------------------------------------------
@@ -150,6 +276,28 @@ module "dicom_processing_function_code" {
   force_destroy      = false
 }
 
+# API Authorizer Function Code Bucket
+module "dicom_processing_api_authorizer_function_code_bucket" {
+  source      = "./modules/s3"
+  bucket_name = "dicom-processing-api-authorizer-function-code"
+  objects = [
+    {
+      key    = "api_authorizer.zip"
+      source = "./files/api_authorizer.zip"
+    }
+  ]
+  versioning_enabled = "Enabled"
+  cors = [
+    {
+      allowed_headers = ["*"]
+      allowed_methods = ["PUT", "POST", "GET"]
+      allowed_origins = ["*"]
+      max_age_seconds = 3000
+    }
+  ]
+  force_destroy = true
+}
+
 # Dicom processing function
 module "dicom_processing_function" {
   source        = "./modules/lambda"
@@ -161,6 +309,31 @@ module "dicom_processing_function" {
   runtime       = "python3.12"
   s3_bucket     = module.dicom_processing_function_code.bucket
   s3_key        = "lambda.zip"
+}
+
+# Lambda authorizer function for API Gateway
+module "dicom_processing_api_authorizer_function" {
+  source        = "./modules/lambda"
+  function_name = "dicom-processing-api-authorizer-function"
+  role_arn      = module.dicom_function_iam_role.arn
+  env_variables = {
+    USER_POOL_ID  = module.cognito.user_pool_id
+    APP_CLIENT_ID = module.cognito.client_ids[0]
+    REGION        = var.region
+  }
+  permissions = [
+    {
+      statement_id = "AllowAPIGatewayInvoke"
+      action       = "lambda:InvokeFunction"
+      principal    = "apigateway.amazonaws.com"
+      source_arn   = "${aws_api_gateway_rest_api.dicom_processing_rest_api.execution_arn}/*/*/*"
+    }
+  ]
+  handler    = "api_authorizer.lambda_handler"
+  runtime    = "python3.12"
+  s3_bucket  = module.dicom_processing_api_authorizer_function_code_bucket.bucket
+  s3_key     = "api_authorizer.zip"
+  depends_on = [module.dicom_processing_api_authorizer_function_code_bucket]
 }
 
 # -----------------------------------------------------------------------------------------
@@ -382,3 +555,89 @@ module "frontend_instance" {
   subnet_id                   = module.public_subnets.subnets[0].id
   security_groups             = [module.security_group.id]
 }
+
+# API Gateway configuration
+resource "aws_api_gateway_rest_api" "dicom_processing_rest_api" {
+  name = "dicom-processing-api"
+  endpoint_configuration {
+    types = ["REGIONAL"]
+  }
+}
+
+# Authorizer Resource
+resource "aws_api_gateway_authorizer" "cognito_authorizer" {
+  name            = "dicom-processing-cognito-authorizer"
+  rest_api_id     = aws_api_gateway_rest_api.dicom_processing_rest_api.id
+  authorizer_uri  = module.dicom_processing_api_authorizer_function.invoke_arn
+  identity_source = "method.request.header.Authorization"
+  type            = "REQUEST"
+}
+
+resource "aws_api_gateway_resource" "dicom_processing_resource_api" {
+  rest_api_id = aws_api_gateway_rest_api.dicom_processing_rest_api.id
+  parent_id   = aws_api_gateway_rest_api.dicom_processing_rest_api.root_resource_id
+  path_part   = "api"
+}
+
+# ---------------------------------------------------------------------------------------------------
+
+resource "aws_api_gateway_method" "dicom_processing_resource_api_get_records_method" {
+  rest_api_id      = aws_api_gateway_rest_api.dicom_processing_rest_api.id
+  resource_id      = aws_api_gateway_resource.dicom_processing_resource_api.id
+  api_key_required = false
+  http_method      = "GET"
+  authorization    = "CUSTOM"
+  authorizer_id    = aws_api_gateway_authorizer.cognito_authorizer.id
+}
+
+resource "aws_api_gateway_integration" "dicom_processing_resource_api_get_records_method_integration" {
+  rest_api_id             = aws_api_gateway_rest_api.dicom_processing_rest_api.id
+  resource_id             = aws_api_gateway_resource.dicom_processing_resource_api.id
+  http_method             = aws_api_gateway_method.dicom_processing_resource_api_get_records_method.http_method
+  integration_http_method = "GET"
+  type                    = "AWS_PROXY"
+  uri                     = module.dicom_processing_get_records_function.invoke_arn
+}
+
+resource "aws_api_gateway_method_response" "dicom_processing_get_records_method_response_200" {
+  rest_api_id = aws_api_gateway_rest_api.dicom_processing_rest_api.id
+  resource_id = aws_api_gateway_resource.dicom_processing_resource_api.id
+  http_method = aws_api_gateway_method.dicom_processing_resource_api_get_records_method.http_method
+  status_code = "200"
+}
+
+resource "aws_api_gateway_integration_response" "get_records_integration_response_200" {
+  rest_api_id = aws_api_gateway_rest_api.dicom_processing_rest_api.id
+  resource_id = aws_api_gateway_resource.dicom_processing_resource_api.id
+  http_method = aws_api_gateway_method.dicom_processing_resource_api_get_records_method.http_method
+  status_code = aws_api_gateway_method_response.dicom_processing_get_records_method_response_200.status_code
+  depends_on = [
+    aws_api_gateway_integration.dicom_processing_resource_api_get_records_method_integration
+  ]
+}
+
+resource "aws_api_gateway_deployment" "dicom_processing_api_deployment" {
+  rest_api_id = aws_api_gateway_rest_api.dicom_processing_rest_api.id
+  lifecycle {
+    create_before_destroy = true
+  }
+  depends_on = [aws_api_gateway_integration.dicom_processing_resource_api_get_records_method_integration]
+}
+
+resource "aws_api_gateway_stage" "dicom_processing_api_stage" {
+  deployment_id = aws_api_gateway_deployment.dicom_processing_api_deployment.id
+  rest_api_id   = aws_api_gateway_rest_api.dicom_processing_rest_api.id
+  stage_name    = "dev"
+}
+
+# resource "aws_api_gateway_method_settings" "dicom_processing_api_method_settings" {
+#   rest_api_id = aws_api_gateway_rest_api.dicom_processing_rest_api.id
+#   stage_name  = aws_api_gateway_stage.dicom_processing_api_stage.stage_name
+#   method_path = "${aws_api_gateway_resource.dicom_processing_resource_api.path_part}/${aws_api_gateway_method.dicom_processing_resource_api_get_records_method.http_method}"
+
+#   settings {
+#     metrics_enabled = true
+#     logging_level   = "INFO"
+#     data_trace_enabled = true
+#   }
+# }
