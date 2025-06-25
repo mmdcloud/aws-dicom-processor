@@ -63,51 +63,51 @@ resource "aws_s3_bucket_notification" "bucket_notification" {
   }
 }
 
-resource "aws_s3_bucket_lifecycle_configuration" "lifecyle_policy" {
-  bucket = aws_s3_bucket.bucket.id
-  count  = length(var.lifecycle_policies)
-  dynamic "rule" {
-    for_each = var.lifecycle_policies[count.index]
-    content {
-      id     = rule.value.id == null ? "" : rule.value.id      
-      status = rule.value.status == null ? "" : rule.value.status
+# resource "aws_s3_bucket_lifecycle_configuration" "lifecyle_policy" {
+#   bucket = aws_s3_bucket.bucket.id
+#   count  = length(var.lifecycle_policies)
+#   dynamic "rule" {
+#     for_each = var.lifecycle_policies[count.index]
+#     content {
+#       id     = rule.value.id == null ? "" : rule.value.id      
+#       status = rule.value.status == null ? "" : rule.value.status
 
-      dynamic "filter" {
-        for_each = rule.value.filters
-        content {
-          prefix = filter.value.prefix
-        }
-      }
+#       dynamic "filter" {
+#         for_each = rule.value.filters
+#         content {
+#           prefix = filter.value.prefix
+#         }
+#       }
 
-      dynamic "transition" {
-        for_each = rule.value.transitions
-        content {
-          days          = transition.value.days
-          storage_class = transition.value.storage_class
-        }
-      }
+#       dynamic "transition" {
+#         for_each = rule.value.transitions
+#         content {
+#           days          = transition.value.days
+#           storage_class = transition.value.storage_class
+#         }
+#       }
 
-      dynamic "noncurrent_version_transition" {
-        for_each = rule.value.noncurrent_version_transitions 
-        content {
-          noncurrent_days = noncurrent_version_transition.value.days
-          storage_class   = noncurrent_version_transition.value.storage_class
-        }
-      }
+#       dynamic "noncurrent_version_transition" {
+#         for_each = rule.value.noncurrent_version_transitions 
+#         content {
+#           noncurrent_days = noncurrent_version_transition.value.days
+#           storage_class   = noncurrent_version_transition.value.storage_class
+#         }
+#       }
 
-      dynamic "expiration" {
-        for_each = rule.value.expirations
-        content {
-          days = expiration.value.days
-        }
-      }
+#       dynamic "expiration" {
+#         for_each = rule.value.expirations
+#         content {
+#           days = expiration.value.days
+#         }
+#       }
 
-      dynamic "abort_incomplete_multipart_upload" {
-        for_each = rule.value.abort_incomplete_multipart_uploads
-        content {
-          days_after_initiation = abort_incomplete_multipart_upload.value.days_after_initiation
-        }
-      }
-    }
-  }
-}
+#       dynamic "abort_incomplete_multipart_upload" {
+#         for_each = rule.value.abort_incomplete_multipart_uploads
+#         content {
+#           days_after_initiation = abort_incomplete_multipart_upload.value.days_after_initiation
+#         }
+#       }
+#     }
+#   }
+# }

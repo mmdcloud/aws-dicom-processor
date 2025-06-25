@@ -3,7 +3,7 @@
 # -----------------------------------------------------------------------------------------
 module "source_bucket" {
   source      = "./modules/s3"
-  bucket_name = "dicommediasourcebucket"
+  bucket_name = "dicom-media-source-bucket"
   objects = [
     {
       key    = "images/"
@@ -25,9 +25,8 @@ module "source_bucket" {
       max_age_seconds = 3000
     }
   ]
-  bucket_policy      = ""
-#   lifecycle_policies = []
-  force_destroy      = false
+  bucket_policy = ""
+  force_destroy = false
   bucket_notification = {
     queue           = []
     lambda_function = []
@@ -36,7 +35,7 @@ module "source_bucket" {
 
 module "destination_bucket" {
   source      = "./modules/s3"
-  bucket_name = "dicommediadestinationbucket"
+  bucket_name = "dicom-media-destination-bucket"
   objects = [
     {
       key    = "images/"
@@ -78,17 +77,6 @@ module "destination_bucket" {
       }
     ]
   })
-  lifecycle_policies = [
-    {
-      id                                 = "Expire old media files"
-      status                             = "Enabled"
-      abort_incomplete_multipart_uploads = []
-      filters                            = []
-      expirations                        = []
-      noncurrent_version_transitions     = []
-      transitions                        = []
-    }
-  ]
   force_destroy = false
   bucket_notification = {
     queue           = []
@@ -142,7 +130,7 @@ module "dicom_function_iam_role" {
 
 module "dicom_processing_function_code" {
   source      = "./modules/s3"
-  bucket_name = "dicomprocessingfunctioncode"
+  bucket_name = "dicom-processing-function-code"
   objects = [
     {
       key    = "dicom_processing.zip"
