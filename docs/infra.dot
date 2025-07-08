@@ -1,0 +1,40 @@
+digraph INFRA {
+  node [ color = "black", fillcolor = "#E6E6E6", height =1, style = "filled,bold,rounded", fontname = "Arial" ];
+  "dicom-health-imaging-status-change-topic" [ label = "dicom-health-imaging-status-change-topic
+(AWS::SNS::Topic)", shape =rectangle, fillcolor = "#CCE0AC" ];
+  "dicom-health-imaging-state-change-rule" [ label = "dicom-health-imaging-state-change-rule
+(AWS::Events::Rule)", shape =rectangle, fillcolor = "#CCE0AC" ];
+  "dicom-records" [ label = "dicom-records
+(AWS::DynamoDB::Table)", shape =cylinder, fillcolor = "#FFCFB3" ];
+  "dicom-processing-queue" [ label = "dicom-processing-queue
+(AWS::SQS::Queue)", shape =rectangle, fillcolor = "#CCE0AC" ];
+  "dicom-processing-dlq" [ label = "dicom-processing-dlq
+(AWS::SQS::Queue)", shape =rectangle, fillcolor = "#CCE0AC" ];
+  "dicom_processing_users" [ label = "dicom_processing_users
+(AWS::Cognito::UserPool)", shape =rectangle ];
+  "dicom-media-source-bucket" [ label = "dicom-media-source-bucket
+(AWS::S3::Bucket)", shape =cylinder, fillcolor = "#FFF5CD" ];
+  "dicom-media-destination-bucket" [ label = "dicom-media-destination-bucket
+(AWS::S3::Bucket)", shape =cylinder, fillcolor = "#FFF5CD" ];
+  "dicom-processing-function-code" [ label = "dicom-processing-function-code
+(AWS::S3::Bucket)", shape =cylinder, fillcolor = "#FFF5CD" ];
+  "dicom-processing-api-authorizer-function-code" [ label = "dicom-processing-api-authorizer-function-code
+(AWS::S3::Bucket)", shape =cylinder, fillcolor = "#FFF5CD" ];
+  "dicom-processing-function" [ label = "dicom-processing-function
+(AWS::Lambda::Function)", shape =rectangle, fillcolor = "#B7E0FF" ];
+  "dicom-processing-api-authorizer-function" [ label = "dicom-processing-api-authorizer-function
+(AWS::Lambda::Function)", shape =rectangle, fillcolor = "#B7E0FF" ];
+  "dicom_media_cdn" [ label = "dicom_media_cdn
+(AWS::CloudFront::Distribution)", shape =rectangle, fillcolor = "#E78F81" ];
+  "dicom_function_iam_role" [ label = "dicom_function_iam_role
+(AWS::IAM::Role)", shape =rectangle ];
+  "dicom-health-imaging-state-change-rule" -> "dicom-health-imaging-status-change-topic";
+  "dicom-processing-queue" -> "dicom-media-source-bucket";
+  "dicom-media-destination-bucket" -> "dicom_media_cdn";
+  "dicom-processing-function" -> "dicom_function_iam_role";
+  "dicom-processing-function" -> "dicom-processing-function-code";
+  "dicom-processing-api-authorizer-function" -> "dicom_function_iam_role";
+  "dicom-processing-api-authorizer-function" -> "dicom-processing-api-authorizer-function-code";
+  "dicom-processing-api-authorizer-function" -> "dicom_processing_users";
+  "dicom_media_cdn" -> "dicom-media-destination-bucket";
+}
